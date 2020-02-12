@@ -5,8 +5,6 @@
 
 #define LED_PIN 22
 
-char magic_key[] = "Key3412";
-
 BLEPeripheral blePeripheral = BLEPeripheral();
 BLEService service = BLEService("19b10000e8f2537e4f6cd104768a1214");
 BLEService service2 = BLEService("19b10000e8f2537e4f6cd104768a1215");
