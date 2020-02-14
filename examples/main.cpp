@@ -4,13 +4,7 @@
 #include <BLEPeripheral.h>
 #include "app_timer.h"
 
-#define LED_PIN 22
-
 BLEPeripheral blePeripheral = BLEPeripheral();
-BLEService service = BLEService("19b10000e8f2537e4f6cd104768a1214");
-// BLEService service2 = BLEService("19b10000e8f2537e4f6cd104768a1215");
-BLECharacteristic characteristic = BLECharacteristic("19b10001e8f2537e4f6cd104768a1214", BLERead | BLEWrite, 16);
-// BLECharacteristic characteristic2 = BLECharacteristic("19b10001e8f2537e4f6cd104768a1215", BLERead | BLEWrite, 16);
 
 BLEService pressureService = BLEService("DDD0");
 BLECharacteristic pressureCharacteristic = BLECharacteristic("DDD1", BLERead | BLEWrite, 16);
@@ -34,8 +28,7 @@ boolean timers_start(void)
 }
 
 volatile boolean doPoll = false;
-uint16_t chV = 0;
-char chV_buf[16];
+char buf[16];
 
 void timeout_handler(void * p_context)
 {
@@ -44,7 +37,7 @@ void timeout_handler(void * p_context)
 
 boolean timers_init(void)
 {
-  //initialize the low frequency cloc
+  //initialize the low frequency clock
 //   uint32_t err_code = nrf_drv_clock_init(NULL);
 //   APP_ERROR_CHECK(err_code);
 //   nrf_drv_clock_lfclk_request();
@@ -60,39 +53,26 @@ boolean timers_init(void)
 
 void setup()
 {
-	pinMode(9, INPUT);
-  	pinMode(LED_PIN, OUTPUT);
-
 	Wire.setPins(1, 3);
 	Wire.begin();
 
 	delay(100);
 
 	bmp.begin(0x76);
-	bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+	bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
 				Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
 				Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
-				Adafruit_BMP280::FILTER_X2,      /* Filtering. */
-				Adafruit_BMP280::STANDBY_MS_2000); /* Standby time. */
+				Adafruit_BMP280::FILTER_OFF);      /* Filtering. */
 
-  	blePeripheral.setAdvertisedServiceUuid(service.uuid());
 	blePeripheral.setLocalName("HRM1");
-	blePeripheral.addAttribute(service);
-	// blePeripheral.addAttribute(service2);
-	blePeripheral.addAttribute(characteristic);
-	// blePeripheral.addAttribute(characteristic2);
-
 	blePeripheral.setAdvertisedServiceUuid(pressureService.uuid());
   	blePeripheral.addAttribute(pressureService);
   	blePeripheral.addAttribute(pressureCharacteristic);
   	blePeripheral.addAttribute(pressureDescriptor);
 
-	blePeripheral.setAdvertisingInterval(600);
+	blePeripheral.setAdvertisingInterval(2000);
 
-	characteristic.setValue("started");
 	blePeripheral.begin();
-
-	digitalWrite(LED_PIN, HIGH);
 
 	timers_init();
   	timers_start();
@@ -108,17 +88,25 @@ unsigned int lastPing;
 void enterSleep()
 {
 	pingStarted = false;
-	digitalWrite(LED_PIN, LOW);
+	// digitalWrite(LED_PIN, LOW);
 
-    /* Clear exceptions and PendingIRQ from the FPU unit */
+    // Clear exceptions and PendingIRQ from the FPU unit 
     __set_FPSCR(__get_FPSCR()  & ~(FPU_EXCEPTION_MASK));      
     (void) __get_FPSCR();
     NVIC_ClearPendingIRQ(FPU_IRQn);
 
+	// Shut down the TWI
+	NRF_TWI0->ENABLE = TWI_ENABLE_ENABLE_Disabled << TWI_ENABLE_ENABLE_Pos;
+	// Additional tweak - see Errata 89
+	// https://infocenter.nordicsemi.com/index.jsp?topic=%2Ferrata_nRF52832_Rev2%2FERR%2FnRF52832%2FRev2%2Flatest%2Fanomaly_832_89.html&cp=4_2_1_0_1_26
+	*(volatile uint32_t *)0x40003FFC = 0;
+	*(volatile uint32_t *)0x40003FFC;
+	*(volatile uint32_t *)0x40003FFC = 1;
+
 	NVIC_ClearPendingIRQ(SD_EVT_IRQn);
 	NVIC_ClearPendingIRQ(RADIO_NOTIFICATION_IRQn);
 
-	/* Call SoftDevice Wait For event */
+	// Call SoftDevice Wait For event 
 	sd_app_evt_wait();
 }
 
@@ -128,10 +116,12 @@ void loop()
 {
 	if (doPoll)
 	{
-		chV++;
+		// Bring up the TWI
+		NRF_TWI0->ENABLE = TWI_ENABLE_ENABLE_Enabled << TWI_ENABLE_ENABLE_Pos;
+
 		float pressure = bmp.readPressure() * 0.00750062;
-		sprintf(chV_buf, "%u", round(pressure));
-		pressureCharacteristic.setValue(chV_buf);
+		sprintf(buf, "%u", round(pressure));
+		pressureCharacteristic.setValue(buf);
 		doPoll = false;
 	}
 
@@ -141,9 +131,6 @@ void loop()
 	{
 		pingStarted = true;
 		lastPing = millis();
-
-		sprintf(chV_buf, "%u", chV);
-		characteristic.setValue(chV_buf);
 
 		if (pingStarted && (millis() - lastPing > 500))
 		{
