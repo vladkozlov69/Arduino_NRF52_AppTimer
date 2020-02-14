@@ -4,6 +4,9 @@
 #include <BLEPeripheral.h>
 #include "app_timer.h"
 
+#include "nrf.h"
+#include "nrf_soc.h"
+
 BLEPeripheral blePeripheral = BLEPeripheral();
 
 BLEService pressureService = BLEService("DDD0");
@@ -88,20 +91,11 @@ unsigned int lastPing;
 void enterSleep()
 {
 	pingStarted = false;
-	// digitalWrite(LED_PIN, LOW);
 
-    // Clear exceptions and PendingIRQ from the FPU unit 
+    // Clear exceptions and PendingIRQ from the FPU unit (Errata 87)
     __set_FPSCR(__get_FPSCR()  & ~(FPU_EXCEPTION_MASK));      
     (void) __get_FPSCR();
     NVIC_ClearPendingIRQ(FPU_IRQn);
-
-	// Shut down the TWI
-	NRF_TWI0->ENABLE = TWI_ENABLE_ENABLE_Disabled << TWI_ENABLE_ENABLE_Pos;
-	// Additional tweak - see Errata 89
-	// https://infocenter.nordicsemi.com/index.jsp?topic=%2Ferrata_nRF52832_Rev2%2FERR%2FnRF52832%2FRev2%2Flatest%2Fanomaly_832_89.html&cp=4_2_1_0_1_26
-	*(volatile uint32_t *)0x40003FFC = 0;
-	*(volatile uint32_t *)0x40003FFC;
-	*(volatile uint32_t *)0x40003FFC = 1;
 
 	NVIC_ClearPendingIRQ(SD_EVT_IRQn);
 	NVIC_ClearPendingIRQ(RADIO_NOTIFICATION_IRQn);
@@ -116,9 +110,6 @@ void loop()
 {
 	if (doPoll)
 	{
-		// Bring up the TWI
-		NRF_TWI0->ENABLE = TWI_ENABLE_ENABLE_Enabled << TWI_ENABLE_ENABLE_Pos;
-
 		float pressure = bmp.readPressure() * 0.00750062;
 		sprintf(buf, "%u", round(pressure));
 		pressureCharacteristic.setValue(buf);
